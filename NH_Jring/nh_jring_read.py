@@ -369,7 +369,7 @@ while (IS_DONE == False):
         if DO_GROUP:
             indices = (np.array(tg['#'])) # Get a list of indices in this group
             index = (indices == i)
-            i = int(indices[roll(index,-1)])
+            i = int(indices[np.roll(index,-1)])
         
         else:
             i += 1
@@ -380,7 +380,7 @@ while (IS_DONE == False):
         if DO_GROUP:
             indices = (np.array(tg['#'])) # Get a list of indices in this group
             index = (indices == i)        # Find index of current one
-            i = int(indices[roll(index,1)])    # And move backwards in the list
+            i = int(indices[np.roll(index,1)])    # And move backwards in the list
 
         else:
             i -= 1
@@ -410,11 +410,6 @@ while (IS_DONE == False):
             power = 10
        
         p = hbt.sfit(image.data, power)
-#            p = fit_p(p_init, x, y, image.data)
-        
-#        imshow(skimage.exposure.equalize_hist(image.data - p), cmap=get_cmap('Greys'))
-
-#        plt.show()
 
 # Now calculate the ring points...
 
@@ -535,11 +530,13 @@ while (IS_DONE == False):
             y = int(y_phot[i])
             if (x > 0) & (x < 950) & (y > 0) & (y < 950):
                 image_phot[x:x+10, y:y+10] = kernel     
+
+# Find the offset between the images
     
-        corr = np.zeros((100,100))
-        for i in range(100):
-            for j in range(100):
-                corr[i,j] = np.sum(np.maximum(image_phot, np.roll(np.roll(image_cat,i-50,axis=0),j-50,axis=1)))
+        corr = np.zeros((60,60))
+        for i in range(60):
+            for j in range(60):
+                corr[i,j] = np.sum(np.maximum(image_phot, np.roll(np.roll(image_cat,i-30,axis=0),j-30,axis=1)))
 
 # Normalize the correlation array so there is one peak, with range 0 .. 1
          
@@ -558,7 +555,7 @@ while (IS_DONE == False):
         
 # And roll the star catalog image
 
-        image_cat_rolled = roll(roll(image_cat,dy-50,axis=0), dx-50, axis=1)        
+        image_cat_rolled = np.roll(np.roll(image_cat,dy-30,axis=0), dx-30, axis=1)        
 
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
@@ -568,7 +565,7 @@ while (IS_DONE == False):
         plt.set_cmap('Greys')
         plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
-        fig2 = plt.imshow(np.log(image.data - p), cmap=get_cmap('Greys'), interpolation='nearest')
+        fig2 = plt.imshow(np.log(image.data - p), cmap=plt.get_cmap('Greys'), interpolation='nearest')
         plt.plot(x_cat + (dy-50), y_cat + (dx-50), marker='o', ls='None', color='lightgreen', ms=12, mew=1)
         plt.plot(x_phot, y_phot, marker='o', ls='None', color='pink')
 
