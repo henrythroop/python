@@ -29,11 +29,10 @@ import astropy.table   # I need the unique() function here. Why is in in table a
 import matplotlib.pyplot as plt # pyplot
 import numpy as np
 import astropy.modeling
-from   pylab import *  # So I can change plot size.
+#from   pylab import *  # So I can change plot size.
                        # Pylab defines the 'plot' command
 import cspice
 import skimage
-from   skimage.transform import resize
 from   itertools import izip    # To loop over groups in a table -- see astropy tables docs
 from   astropy.wcs import WCS
 from   astropy.vo.client import conesearch # Virtual Observatory, ie star catalogs
@@ -43,6 +42,7 @@ from   astropy.coordinates import SkyCoord # To define coordinates to use in sta
 from   astropy.stats import sigma_clipped_stats
 from   photutils import daofind
 import HBT as hbt
+import warnings
 
 #function calc_median_framelist(t)
 
@@ -95,7 +95,7 @@ fits_spctnaz = [] # Pole angle between target and instrument (i.e., boresight ro
 #    files_short = files[i].split('/')[-1]  # Get just the filename itself
 
 # Set up one iteration variable so we don't need to create it over and over
-num_obs = size(files)
+num_obs = np.size(files)
 i_obs = np.arange(num_obs)
 
 for file in files:
@@ -141,7 +141,7 @@ print "done"
 
 # Make a plot vs. time showing distance to the ring (i.e., resolution),
 # of ring pixels imaged, and 
-rcParams['figure.figsize'] = 12, 10 # Make plot normal size
+plt.rcParams['figure.figsize'] = 12, 10 # Make plot normal size
 
 # Convert some things to numpy arrays. Is there any disadvantage to this?
 
@@ -161,7 +161,7 @@ exptime    = np.array(fits_exptime)
 rotation   = np.array(fits_spctnaz)
 rotation   = np.rint(rotation).astype(int)  # Turn rotation into integer. I only want this to be 0, 90, 180, 270... I don't care about the resolution so much.
 
-dist_targ = sqrt(dx_targ**2 + dy_targ**2 + dz_targ**2)
+dist_targ = np.sqrt(dx_targ**2 + dy_targ**2 + dz_targ**2)
 
 phase = np.zeros(num_obs)
 utc = np.zeros(num_obs, dtype = 'S30')
@@ -285,7 +285,7 @@ IS_DONE = False
 
 r2d = 180 / np.pi
 
-range_selected = range(size(files))            # By default, set the range to act upon every file
+range_selected = range(np.size(files))            # By default, set the range to act upon every file
 
 prompt = "(#)number, (sr)set range of files for action, (q)uit, (l)ist, (n)ext, (p)revious, list (g)roups, \n" + \
          "(h)eader,  (d)s9, (" + repr(i) + ") ?: "
@@ -504,7 +504,7 @@ while (IS_DONE == False):
         plt.set_cmap('Greys')
         plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
-        fig2 = plt.imshow(np.log(image.data - p), cmap=get_cmap('Greys'), interpolation='nearest')
+        fig2 = plt.imshow(np.log(image.data - p), cmap=plt.get_cmap('Greys'), interpolation='nearest')
         plt.plot(x_phot, y_phot, marker='o', ls='None')
         plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen')
         plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', color='lightgreen')
@@ -520,10 +520,10 @@ while (IS_DONE == False):
 # Create new arrays with photometric and VO star images in them.
         xx, yy = np.mgrid[:10, :10]
         circle = (xx - 4.5) ** 2 + (yy - 4.5) ** 2
-        kernel = roll(roll(circle,5,axis=0),5,axis=1)
+        kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
         
-        image_phot = np.zeros(shape(image.data))
-        image_cat  = np.zeros(shape(image.data))
+        image_phot = np.zeros(np.shape(image.data))
+        image_cat  = np.zeros(np.shape(image.data))
         for i in range(len(x_cat)):                 # XXX Why do I have to use index variable, not for x, y??
             x = int(x_cat[i])
             y = int(y_cat[i])
@@ -539,7 +539,7 @@ while (IS_DONE == False):
         corr = np.zeros((100,100))
         for i in range(100):
             for j in range(100):
-                corr[i,j] = np.sum(np.maximum(image_phot, roll(roll(image_cat,i-50,axis=0),j-50,axis=1)))
+                corr[i,j] = np.sum(np.maximum(image_phot, np.roll(np.roll(image_cat,i-50,axis=0),j-50,axis=1)))
 
 # Normalize the correlation array so there is one peak, with range 0 .. 1
          
