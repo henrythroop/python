@@ -61,6 +61,8 @@ def longest_common_substring(S,T):
 
 def sfit(arr, degree=3, binning=16): # For efficiency, we downsample the input array before doing the fit.
     "Fit polynomial to a 2D array, aka surface."
+
+# For info on resizing, see http://stackoverflow.com/questions/29958670/how-to-use-matlabs-imresize-in-python
     
     shape_small = (np.size(arr,0)/binning, np.size(arr,1)/binning)
     shape_big   = np.shape(arr)
