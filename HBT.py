@@ -12,6 +12,7 @@
 import numpy as np
 import astropy.modeling
 import skimage.transform as skt  # This 'resize' function is more useful than np's
+import matplotlib as plt
 
 
 # We want to define these as functions, not classes
@@ -24,6 +25,27 @@ import skimage.transform as skt  # This 'resize' function is more useful than np
 # Function for wheremin()
 #########
 
+def image_from_list_points(points, shape, diam_kernel):
+    "Given an ordered list of xy points, and an output size, creates an image."
+    "Useful for creating synthetic star fields."
+    
+    kernel = dist_center(diam_kernel, invert=True, normalize=True)
+    arr = np.zeros(shape)
+    dx = shape[0]
+    dy = shape[1]
+    x = points[:,0]
+    y = points[:,1]
+    for i in range(len(x)):
+        xi = points[i,0]
+        yi = points[i,1]
+        if (xi >= 0) & (xi + diam_kernel < dx) & (yi >= 0) & (yi + diam_kernel < dy):
+            arr[xi:xi+diam_kernel, yi:yi+diam_kernel] = kernel
+     
+    return arr
+    
+def set_plot_defaults():
+    plt.rc('image', interpolation='None')       # Turn of interpolation for imshow
+    
 def wheremin( arr ):
    "Determines the index at which an array has its minimum value"
    index = np.where(arr == np.amin(arr))
@@ -37,6 +59,24 @@ def commonOverlapNaive(text1, text2):
     x -= 1  
   return x 
 
+def dist_center(diam, circle=False, centered=True, invert=False, normalize=False):
+    "Returns an array of dimensions diam x diam, with each cell being the distance from the center cell"
+    "Works best if diam is an odd integer."    
+    xx, yy = np.mgrid[:diam, :diam]
+    
+    if (centered):
+        dist = np.sqrt((xx - (diam-1)/2.) ** 2 + (yy - (diam-1)/2.) ** 2)
+    else: 
+        dist = np.sqrt((xx)           ** 2 + (yy)           ** 2)
+    
+    if (invert):
+        dist = np.amax(dist) - dist
+        
+    if (normalize):
+        dist = (dist - np.amin(dist)) / np.ptp(dist)
+        
+    return dist
+    
 def longest_common_substring(S,T):
     "Given two strings, returns the longest common substring as a set"
     "http://www.bogotobogo.com/python/python_longest_common_substring_lcs_algorithm_generalized_suffix_tree.php"

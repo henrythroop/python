@@ -46,6 +46,11 @@ import warnings
 
 #function calc_median_framelist(t)
 
+hbt.set_plot_defaults()
+
+def image_from_list_points(points, dim):
+  pass
+  
 d2r = np.pi /180.
 r2d = 1. / d2r
          
@@ -510,26 +515,37 @@ while (IS_DONE == False):
         plt.xlim((0,1000))
         plt.ylim((0,1000))
 
-        quit
-      
-# Create new arrays with photometric and VO star images in them.
-        xx, yy = np.mgrid[:10, :10]
-        circle = (xx - 4.5) ** 2 + (yy - 4.5) ** 2
-        kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
-        
-        image_phot = np.zeros(np.shape(image.data))
-        image_cat  = np.zeros(np.shape(image.data))
-        for i in range(len(x_cat)):                 # XXX Why do I have to use index variable, not for x, y??
-            x = int(x_cat[i])
-            y = int(y_cat[i])
-            if (x > 0) & (x < 950) & (y > 0) & (y < 950):
-                image_cat[x:x+10, y:y+10] = kernel
+#        quit
 
-        for i in range(len(x_phot)):
-            x = int(x_phot[i])
-            y = int(y_phot[i])
-            if (x > 0) & (x < 950) & (y > 0) & (y < 950):
-                image_phot[x:x+10, y:y+10] = kernel     
+
+    
+#    kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
+        
+# Create new arrays with photometric and VO star images in them.
+#        xx, yy = np.mgrid[:10, :10]
+#        circle = (xx - 4.5) ** 2 + (yy - 4.5) ** 2
+#        kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
+#        
+#        points_cat = np.transpose((x_cat, y_cat))  # array of size (npoints,2)
+        diam_kernel = 11
+        
+        kernel = hbt.dist_center(diam_kernel)
+        
+        points_phot = np.transpose((x_phot, y_phot))
+        points_cat  = np.transpose((x_cat,  y_cat))
+        
+        image_phot = image_from_list_points(points_phot, np.shape(image.data), diam_kernel)
+        image_cat  = image_from_list_points(points_cat,  np.shape(image.data), diam_kernel)
+ 
+        t0,t1 = ird.translation(image_phot, image_cat)
+
+        plt.imshow(image_phot + 
+          np.roll(np.roll(image_from_list_points(points_cat, np.shape(image.data),diam_kernel),t0[0],0),t0[1],1))
+        plt.show()
+        
+        timg = ird.transform_img(image_cat, tvec=t0)
+        ird.imshow(image_phot, image_cat, timg)
+        plt.show()      
 
 # Find the offset between the images
     
@@ -556,7 +572,8 @@ while (IS_DONE == False):
 # And roll the star catalog image
 
         image_cat_rolled = np.roll(np.roll(image_cat,dy-30,axis=0), dx-30, axis=1)        
-
+        
+        
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 
@@ -577,12 +594,12 @@ while (IS_DONE == False):
         
 #        x, y = w.wcs_world2pix(ra, dec, 0)
 #        plot(x, y, marker='o', ls='None')        
-        show()
+        plt.show()
 
 # Now create an image (off-screen) of the catalog stars only, and the DAOphot stars only
-        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
 
-        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))    
+#        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+#        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))    
         quit
 
 #quit
