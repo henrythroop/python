@@ -47,9 +47,6 @@ import warnings
 #function calc_median_framelist(t)
 
 hbt.set_plot_defaults()
-
-def image_from_list_points(points, dim):
-  pass
   
 d2r = np.pi /180.
 r2d = 1. / d2r
