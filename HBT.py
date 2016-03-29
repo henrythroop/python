@@ -45,6 +45,7 @@ def image_from_list_points(points, shape, diam_kernel):
     
 def set_plot_defaults():
     plt.rc('image', interpolation='None')       # Turn of interpolation for imshow
+    plt.rc('image', cmap='Greys')               # Default color table for imshow
     
 def wheremin( arr ):
    "Determines the index at which an array has its minimum value"

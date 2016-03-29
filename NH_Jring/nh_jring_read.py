@@ -43,9 +43,44 @@ from   astropy.stats import sigma_clipped_stats
 from   photutils import daofind
 import HBT as hbt
 import warnings
+import imreg_dft as ird
 
 #function calc_median_framelist(t)
 
+
+def find_stars(im):
+    "Locate stars in an array, using DAOphot. Returns N x 2 array with xy positions. No magnitudes."
+         
+    mean, median, std = sigma_clipped_stats(im, sigma=3.0, iters=5)
+    sources = daofind(im - median, fwhm=3.0, threshold=5.*std)
+    x_phot = sources['xcentroid']
+    y_phot = sources['ycentroid']
+        
+    points_phot = np.transpose((x_phot, y_phot)) # Create an array N x 2
+
+    return points_phot
+    
+def calc_offset_points(points_1, points_2, shape):
+    "Calculate the offset between a pair of ordered points -- e.g., an xy list of star positions, and and xy list of model postns."
+    "Returned offset is an xy ordered pair with a shift."
+    
+    diam_kernel = 11
+        
+    kernel = hbt.dist_center(diam_kernel)
+        
+    image_1 = hbt.image_from_list_points(points_1, shape, diam_kernel)
+    image_2 = hbt.image_from_list_points(points_2, shape, diam_kernel)
+ 
+    t0,t1 = ird.translation(image_1, image_2)
+
+# Plot the pair of images
+
+#        plt.imshow(image_phot + 
+#          np.roll(np.roll(image_from_list_points(points_cat, np.shape(image.data),diam_kernel),t0[0],0),t0[1],1))
+#        plt.show()
+        
+    return t0
+        
 hbt.set_plot_defaults()
   
 d2r = np.pi /180.
@@ -469,6 +504,7 @@ while (IS_DONE == False):
         dec_abcorr  = dec.copy()
         
         x_cat, y_cat = w.wcs_world2pix(ra, dec, 0)
+        points_cat = np.transpose((x_cat, y_cat))
         
         DO_PLOT_I = False
 
@@ -488,100 +524,56 @@ while (IS_DONE == False):
         
 # Use DAOphot to search the image for stars. It works really well.
         
-        mean, median, std = sigma_clipped_stats(image.data - p, sigma=3.0, iters=5)
-        sources = daofind(image.data - p - median, fwhm=3.0, threshold=5.*std)
-        x_phot = sources['xcentroid']
-        y_phot = sources['ycentroid']
+        points_phot = find_stars(image.data - p)
 
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 
         fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.set_cmap('Greys')
-        plt.axis('off') # Suppress all axis, labels, etc. 
+        ax = fig.add_subplot(1,2,1) # nrows, ncols, plotnum
+#        plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
-        fig2 = plt.imshow(np.log(image.data - p), cmap=plt.get_cmap('Greys'), interpolation='nearest')
-        plt.plot(x_phot, y_phot, marker='o', ls='None')
-        plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen')
-        plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', color='lightgreen')
+        fig1 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+        
+        ax2 = fig.add_subplot(1,2,2)
+        fig2 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+
+        plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None')
+        plt.plot(points_cat[:,0], points_cat[:,1], marker='o', ls='None', color='lightgreen')
+#        plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', color='lightgreen')
 
         plt.plot(x_ring,y_ring, marker = 'o', color='red', ls='-')
         fig2.axes.get_xaxis().set_visible(False)
         fig2.axes.get_yaxis().set_visible(False) 
         plt.xlim((0,1000))
-        plt.ylim((0,1000))
-
-#        quit
-
-
-    
-#    kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
+        plt.ylim((0,1000))        
         
-# Create new arrays with photometric and VO star images in them.
-#        xx, yy = np.mgrid[:10, :10]
-#        circle = (xx - 4.5) ** 2 + (yy - 4.5) ** 2
-#        kernel = np.roll(np.roll(circle,5,axis=0),5,axis=1)
-#        
-#        points_cat = np.transpose((x_cat, y_cat))  # array of size (npoints,2)
-        diam_kernel = 11
-        
-        kernel = hbt.dist_center(diam_kernel)
-        
-        points_phot = np.transpose((x_phot, y_phot))
-        points_cat  = np.transpose((x_cat,  y_cat))
-        
-        image_phot = image_from_list_points(points_phot, np.shape(image.data), diam_kernel)
-        image_cat  = image_from_list_points(points_cat,  np.shape(image.data), diam_kernel)
- 
-        t0,t1 = ird.translation(image_phot, image_cat)
+# Now look up the shift between the photometry and the star catalog. 
+# Do this by making a pair of fake images, and then looking up image registration on them.
 
-        plt.imshow(image_phot + 
-          np.roll(np.roll(image_from_list_points(points_cat, np.shape(image.data),diam_kernel),t0[0],0),t0[1],1))
-        plt.show()
-        
-        timg = ird.transform_img(image_cat, tvec=t0)
-        ird.imshow(image_phot, image_cat, timg)
-        plt.show()      
-
-# Find the offset between the images
-    
-        corr = np.zeros((60,60))
-        for i in range(60):
-            for j in range(60):
-                corr[i,j] = np.sum(np.maximum(image_phot, np.roll(np.roll(image_cat,i-30,axis=0),j-30,axis=1)))
-
-# Normalize the correlation array so there is one peak, with range 0 .. 1
-         
-        corr = corr - np.min(corr)
-        corr = np.max(corr) - corr
-        corr = corr / np.max(corr)
-
-# Use DAOfind to locate this peak. Could do it other methods, but this works well, even if overkill.
-        
-        s2 = daofind(corr, fwhm=10, threshold=0.8)
-
-# Now get the offsets. This is in pixels.
-
-        dx = int(np.round(s2['xcentroid'][0]))
-        dy = int(np.round(s2['ycentroid'][0]))
-        
-# And roll the star catalog image
-
-        image_cat_rolled = np.roll(np.roll(image_cat,dy-30,axis=0), dx-30, axis=1)        
-        
+# What we want to do here:
+#
+#  ** First plot
+#  Plot the image
+#  Plot the photometric stars, in boxes
+#
+#  ** Second plot
+#  Plot the catalog stars *plus derived offset* in circles
+        (dy,dx) = calc_offset_points(points_phot, points_cat, np.shape(image.data))
         
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        plt.set_cmap('Greys')
-        plt.axis('off') # Suppress all axis, labels, etc. 
+#        plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
-        fig2 = plt.imshow(np.log(image.data - p), cmap=plt.get_cmap('Greys'), interpolation='nearest')
-        plt.plot(x_cat + (dy-50), y_cat + (dx-50), marker='o', ls='None', color='lightgreen', ms=12, mew=1)
-        plt.plot(x_phot, y_phot, marker='o', ls='None', color='pink')
+        fig2 = plt.imshow(np.log(image.data - p))
+        
+#        plt.plot(points_cat[:,0] + (dy-50), points_cat[:,1] + (dx-50), marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+        plt.plot(points_cat[:,0], points_cat[:,1], marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+
+        plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='pink')
 
         plt.plot(x_ring + (dy-50)-24,y_ring + (dx-50)-32, marker = 'o', color='red', ls='-', ms=8)
         fig2.axes.get_xaxis().set_visible(False)
@@ -599,8 +591,6 @@ while (IS_DONE == False):
 #        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))    
         quit
 
-#quit
-
         fig = plt.figure()
         ax = fig.add_subplot(111)        
         rnd = np.random.random((100,100))
@@ -613,7 +603,7 @@ while (IS_DONE == False):
         plt.ylim((0,100))
         plt.show()
         data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        print repr(shape(data))
+        print repr(np.shape(data))
         fig.savefig('out.png', bbox_inches='tight', pad_inches=0)
         
 #        imshow(np.log(image.data - p), cmap=get_cmap('Greys'))
@@ -658,4 +648,34 @@ abcorr = 'LT'
 r2d    = 360. / 2. / math.pi
 
 
+def calc_offset_slow(image_phot):
+    "Find the offset between the images."
+    "This uses a painfully slow brute force approach. Definitely not recommended."
+    "Hasn't been tested as a function"
+    
+    corr = np.zeros((60,60))
+    for i in range(60):
+        for j in range(60):
+            corr[i,j] = np.sum(np.maximum(im1, np.roll(np.roll(im0,i-30,axis=0),j-30,axis=1)))
 
+# Normalize the correlation array so there is one peak, with range 0 .. 1
+     
+    corr = corr - np.min(corr)
+    corr = np.max(corr) - corr
+    corr = corr / np.max(corr)
+
+# Use DAOfind to locate this peak. Could do it other methods, but this works well, even if overkill.
+    
+    s2 = daofind(corr, fwhm=10, threshold=0.8)
+
+# Now get the offsets. This is in pixels.
+
+    dx = int(np.round(s2['xcentroid'][0]))
+    dy = int(np.round(s2['ycentroid'][0]))
+    
+# And roll the star catalog image
+
+    im0_rolled = np.roll(np.roll(image_0,dy-30,axis=0), dx-30, axis=1)        
+    
+    return im0_rolled
+    
