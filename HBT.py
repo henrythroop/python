@@ -39,7 +39,7 @@ def image_from_list_points(points, shape, diam_kernel):
         xi = points[i,0]
         yi = points[i,1]
         if (xi >= 0) & (xi + diam_kernel < dx) & (yi >= 0) & (yi + diam_kernel < dy):
-            arr[xi:xi+diam_kernel, yi:yi+diam_kernel] = kernel
+            arr[yi:yi+diam_kernel, xi:xi+diam_kernel] = kernel
      
     return arr
     

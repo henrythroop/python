@@ -60,19 +60,49 @@ def find_stars(im):
 
     return points_phot
     
-def calc_offset_points(points_1, points_2, shape):
+def calc_offset_points(points_1, points_2, shape, plot=False):
     "Calculate the offset between a pair of ordered points -- e.g., an xy list of star positions, and and xy list of model postns."
-    "Returned offset is an xy ordered pair with a shift."
+    "Returned offset is integer pixels as tuple (dy, dx)."
     
-    diam_kernel = 11
-        
-    kernel = hbt.dist_center(diam_kernel)
-        
+    diam_kernel = 5 # If this is 11, that is too big, and we gt the wrong answer. Very sensitive.
+
     image_1 = hbt.image_from_list_points(points_1, shape, diam_kernel)
     image_2 = hbt.image_from_list_points(points_2, shape, diam_kernel)
  
-    t0,t1 = ird.translation(image_1, image_2)
+    t0,t1 = ird.translation(image_1, image_2) # Return shift, with t0 = (dy, dx). t1 is a flag or quality or something.
+    (dy,dx) = t0
+    
+    if (plot):
 
+        xrange = (0, shape[0])
+        yrange = (0, shape[1])
+
+        figs = plt.figure()
+        ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
+        ax1.set_aspect('equal') # Need to explicitly set aspect ratio here, otherwise in a multi-plot, it will be rectangular
+
+#        fig1 = plt.imshow(np.log(image_1))
+        plt.plot(points_1[:,0], points_1[:,1], marker='o', color='lightgreen', markersize=4, ls='None', label = 'Photometric')
+        plt.plot(points_2[:,0], points_2[:,1], marker='o', color='red', markersize=4, ls='None', label = 'Cat')
+        plt.legend()
+       
+        plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
+        plt.ylim(yrange)
+        plt.title('Raw')
+        
+        ax2 = figs.add_subplot(1,2,2) # nrows, ncols, plotnum. Returns an 'axis'
+        plt.plot(points_1[:,0], points_1[:,1], marker='o', color='lightgreen', markersize=9, ls='None')
+        plt.plot(points_2[:,0] + t0[1], points_2[:,1] + t0[0], marker='o', color='red', markersize=4, ls='None')
+        ax2.set_aspect('equal')
+
+        plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
+        plt.ylim(yrange)
+        plt.title('Shifted, dx=' + repr(dx) + ', dy = ' + repr(dy))
+
+#        ax3 = figs.add_subplot(2,2,3)
+        
+        plt.show()
+        
 # Plot the pair of images
 
 #        plt.imshow(image_phot + 
@@ -526,40 +556,63 @@ while (IS_DONE == False):
         
         points_phot = find_stars(image.data - p)
 
-# Now assemble it all into a single composite image
-# Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,2,1) # nrows, ncols, plotnum
-#        plt.axis('off') # Suppress all axis, labels, etc. 
-        ax = plt.Axes(fig, [0,0,1,1]) 
-        fig1 = plt.imshow(np.log(image.data - p), interpolation='nearest')
-        
-        ax2 = fig.add_subplot(1,2,2)
-        fig2 = plt.imshow(np.log(image.data - p), interpolation='nearest')
-
-        plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None')
-        plt.plot(points_cat[:,0], points_cat[:,1], marker='o', ls='None', color='lightgreen')
-#        plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', color='lightgreen')
-
-        plt.plot(x_ring,y_ring, marker = 'o', color='red', ls='-')
-        fig2.axes.get_xaxis().set_visible(False)
-        fig2.axes.get_yaxis().set_visible(False) 
-        plt.xlim((0,1000))
-        plt.ylim((0,1000))        
-        
 # Now look up the shift between the photometry and the star catalog. 
 # Do this by making a pair of fake images, and then looking up image registration on them.
+# I call this 'opnav'
 
-# What we want to do here:
-#
+        (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat, np.shape(image.data), plot=True)
+        
+# Now assemble it all into a single composite image
+# Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 #  ** First plot
 #  Plot the image
 #  Plot the photometric stars, in boxes
 #
 #  ** Second plot
 #  Plot the catalog stars *plus derived offset* in circles
-        (dy,dx) = calc_offset_points(points_phot, points_cat, np.shape(image.data))
+
+        xrange = (0, np.shape(image.data)[0])
+        yrange = (0, np.shape(image.data)[1])
+
+        figs = plt.figure()
+        ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
+
+        fig1 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+
+        plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
+        plt.ylim(yrange)
+        
+# Overlay photometric stars
+        plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', fillstyle='none', color='red', markersize=12)
+
+# Now make second plot
+        
+        ax2 = figs.add_subplot(1,2,2)
+        fig2 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+
+# Overlay photometric stars
+        plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='red', markersize=12)
+
+# Overlay catalog stars, raw
+#        plt.plot(points_cat[:,0],  points_cat[:,1],  marker='o', ls='None', color='lightgreen')
+
+# Overlay catalog stars, corrected for opnav offset
+        plt.plot(points_cat[:,0] + dx_opnav, points_cat[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen')
+
+# Overlay catalog stars, ab-corrected *and* offset
+
+# Overlay rings points
+#        plt.plot(x_ring, y_ring, marker = 'o', color='red', ls='-')
+        
+        plt.xlim(xrange)
+        plt.ylim(yrange)
+        
+#        fig2.axes.get_xaxis().set_visible(False) # Turn off the axes labels if requested
+#        fig2.axes.get_yaxis().set_visible(False)         
+#        plt.axis('off') # Suppress all axis, labels, etc. 
+#        plt.Axes(figs, [0,0,1,1]) # Axes gets passed a figure, not an axis.
+        plt.show()     
+
         
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
@@ -575,7 +628,7 @@ while (IS_DONE == False):
 
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='pink')
 
-        plt.plot(x_ring + (dy-50)-24,y_ring + (dx-50)-32, marker = 'o', color='red', ls='-', ms=8)
+        plt.plot(x_ring + dx_opnav, y_ring + dy_opnav, marker = 'o', color='red', ls='-', ms=8)
         fig2.axes.get_xaxis().set_visible(False)
         fig2.axes.get_yaxis().set_visible(False) 
         plt.xlim((0,1000))
@@ -591,27 +644,7 @@ while (IS_DONE == False):
 #        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))    
         quit
 
-        fig = plt.figure()
-        ax = fig.add_subplot(111)        
-        rnd = np.random.random((100,100))
-        plt.imshow(rnd, interpolation='nearest')
-        ax = plt.Axes(fig, [0,0,1,1]) 
-        plt.axis('off') # Suppress all axis, labels, etc. 
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-        plt.xlim((0,100))
-        plt.ylim((0,100))
-        plt.show()
-        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        print repr(np.shape(data))
-        fig.savefig('out.png', bbox_inches='tight', pad_inches=0)
-        
-#        imshow(np.log(image.data - p), cmap=get_cmap('Greys'))
-#        plot(x, y, marker='o', ls='None')
-#        plt.xlim((0,1000))
-#        plt.ylim((0,1000))
-#    
-            
+
 #    
 # Define a method to list all of the images, or a sub-range of them.
 
