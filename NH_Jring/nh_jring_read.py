@@ -514,7 +514,7 @@ while (IS_DONE == False):
                 
                 range_out, ra, dec = cspice.recrad(rho_ring) # 'range' is a protected keyword in python!
                 
-                ra_ring[j] = ra
+                ra_ring[j] = ra     # save RA, Dec as radians
                 dec_ring[j] = dec
                 
         w = WCS(t['Filename'][i])                  # Look up the WCS coordinates for this frame
@@ -526,32 +526,31 @@ while (IS_DONE == False):
         center  = w.wcs.crval  # degrees
         name_cat = 'The HST Guide Star Catalog, Version 1.1 (Lasker+ 1992) 1'
         stars = conesearch.conesearch(w.wcs.crval, 0.3, cache=True, catalog_db = name_cat)
-        ra = np.array(stars.array['_RAJ2000'])
-        dec = np.array(stars.array['_DEJ2000'])
+        ra_cat = np.array(stars.array['_RAJ2000'])*d2r # Convert to radians
+        dec_cat = np.array(stars.array['_DEJ2000'])*d2r # Convert to radians
         table_stars = Table(stars.array.data)
-        
-        ra_abcorr = ra.copy() # Degrees
-        dec_abcorr  = dec.copy()
-        
-        x_cat, y_cat = w.wcs_world2pix(ra, dec, 0)
-        points_cat = np.transpose((x_cat, y_cat))
         
         DO_PLOT_I = False
 
-# Correct for stellar aberration
+# Correct stellar RA/Dec for stellar aberration
 
-        x_cat_abcorr = x_cat.copy()
-        y_cat_abcorr = y_cat.copy()
+        radec_cat = np.transpose(np.array((ra_cat,dec_cat)))
+        radec_cat_abcorr = hbt.correct_stellab(radec_cat, vel_sun_nh_j2k) # Store as radians
 
-        for i in range(len(x_cat)):
-            pos_i = cspice.radrec(1., ra[i]*d2r, dec[i]*d2r)
-            pos_i_abcorr = cspice.stelab(pos_i, vel_sun_nh_j2k)
-            rang, ra_abcorr[i], dec_abcorr[i] = cspice.recrad(pos_i_abcorr)
+# Convert ring RA/Dec for stellar aberration
 
-        ra_abcorr *= r2d # degrees
-        dec_abcorr *= r2d
-        x_cat_abcorr, y_cat_abcorr = w.wcs_world2pix(ra_abcorr, dec_abcorr, 0)
+        radec_ring = np.transpose(np.array((ra_ring,dec_ring)))
+        radec_ring_abcorr = hbt.correct_stellab(radec_ring, vel_sun_nh_j2k) # radians
         
+# Convert RA/Dec values back into pixels
+        
+        x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
+        x_cat_abcorr, y_cat_abcorr = w.wcs_world2pix(radec_cat_abcorr[:,0]*r2d, radec_cat_abcorr[:,1]*r2d, 0)
+        x_ring_abcorr, y_ring_abcorr = w.wcs_world2pix(radec_ring_abcorr[:,0]*r2d, radec_ring_abcorr[:,1]*r2d, 0)
+
+        points_cat = np.transpose((x_cat, y_cat))
+        points_cat_abcorr = np.transpose((x_cat_abcorr, y_cat_abcorr))
+
 # Use DAOphot to search the image for stars. It works really well.
         
         points_phot = find_stars(image.data - p)
@@ -560,7 +559,7 @@ while (IS_DONE == False):
 # Do this by making a pair of fake images, and then looking up image registration on them.
 # I call this 'opnav'
 
-        (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat, np.shape(image.data), plot=True)
+        (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat_abcorr, np.shape(image.data), plot=True)
         
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
@@ -577,7 +576,7 @@ while (IS_DONE == False):
         figs = plt.figure()
         ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
 
-        fig1 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+        fig1 = plt.imshow(np.log(image.data - p))
 
         plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
         plt.ylim(yrange)
@@ -585,25 +584,24 @@ while (IS_DONE == False):
 # Overlay photometric stars
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', fillstyle='none', color='red', markersize=12)
 
-# Now make second plot
-        
+# Now make second plot    
         ax2 = figs.add_subplot(1,2,2)
-        fig2 = plt.imshow(np.log(image.data - p), interpolation='nearest')
+        fig2 = plt.imshow(np.log(image.data - p))
 
 # Overlay photometric stars
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='red', markersize=12)
 
-# Overlay catalog stars, raw
+# Overlay catalog stars
 #        plt.plot(points_cat[:,0],  points_cat[:,1],  marker='o', ls='None', color='lightgreen')
 
 # Overlay catalog stars, corrected for opnav offset
-        plt.plot(points_cat[:,0] + dx_opnav, points_cat[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen')
-
-# Overlay catalog stars, ab-corrected *and* offset
-
-# Overlay rings points
-#        plt.plot(x_ring, y_ring, marker = 'o', color='red', ls='-')
+        plt.plot(points_cat_abcorr[:,0] + dx_opnav, points_cat_abcorr[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen')
         
+# Overlay rings points
+        plt.plot(x_ring, y_ring, marker = 'o', color='red', ls='-')
+ 
+# Now need to apply stellar aberration (and LT?) to the ring points        
+       
         plt.xlim(xrange)
         plt.ylim(yrange)
         
@@ -613,7 +611,6 @@ while (IS_DONE == False):
 #        plt.Axes(figs, [0,0,1,1]) # Axes gets passed a figure, not an axis.
         plt.show()     
 
-        
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 
@@ -623,12 +620,15 @@ while (IS_DONE == False):
         ax = plt.Axes(fig, [0,0,1,1]) 
         fig2 = plt.imshow(np.log(image.data - p))
         
-#        plt.plot(points_cat[:,0] + (dy-50), points_cat[:,1] + (dx-50), marker='o', ls='None', color='lightgreen', ms=12, mew=1)
-        plt.plot(points_cat[:,0], points_cat[:,1], marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+        plt.plot(points_cat[:,0] + dx_opnav, points_cat[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
 
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='pink')
 
+# Plot the ring. For fun, plot it twice, showing effect of stellar aberration
+
         plt.plot(x_ring + dx_opnav, y_ring + dy_opnav, marker = 'o', color='red', ls='-', ms=8)
+        plt.plot(x_ring_abcorr + dx_opnav, y_ring_abcorr + dy_opnav, marker = 'o', color='red', ls='-', ms=8)
+
         fig2.axes.get_xaxis().set_visible(False)
         fig2.axes.get_yaxis().set_visible(False) 
         plt.xlim((0,1000))

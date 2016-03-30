@@ -13,6 +13,7 @@ import numpy as np
 import astropy.modeling
 import skimage.transform as skt  # This 'resize' function is more useful than np's
 import matplotlib as plt
+import cspice
 
 
 # We want to define these as functions, not classes
@@ -25,6 +26,18 @@ import matplotlib as plt
 # Function for wheremin()
 #########
 
+def correct_stellab(radec, vel):
+    "Corect for stellar aberration."
+    "radec is array (n,2) in radians. velocity in km/sec. Both should be in J2K coords."
+
+    radec_abcorr = radec.copy()    
+    for i in range(np.shape(radec)[0]):
+        pos_i = cspice.radrec(1., radec[i,0], radec[i,1])
+        pos_i_abcorr = cspice.stelab(pos_i, vel)
+        rang, radec_abcorr[i,0], radec_abcorr[i,1] = cspice.recrad(pos_i_abcorr)
+
+    return radec_abcorr
+    
 def image_from_list_points(points, shape, diam_kernel):
     "Given an ordered list of xy points, and an output size, creates an image."
     "Useful for creating synthetic star fields."
