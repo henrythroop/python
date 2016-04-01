@@ -20,7 +20,7 @@ Created on Wed Jul 23 12:00:21 2014
 
 import pdb
 import glob
-import os.path
+import math       # We use this to get pi. Documentation says math is 'always available' but apparently it still must be imported.
 from   subprocess import call
 import astropy
 from   astropy.io import fits
@@ -41,6 +41,7 @@ from   astropy.coordinates import SkyCoord # To define coordinates to use in sta
 #from   photutils import datasets
 from   astropy.stats import sigma_clipped_stats
 from   photutils import daofind
+import wcsaxes
 import HBT as hbt
 import warnings
 import imreg_dft as ird
@@ -240,7 +241,11 @@ name_observer = 'New Horizons'
 frame = 'J2000'
 abcorr = 'LT'
 
-# Stuff all of this data 
+# Fix the MET. The 'MET' field in fits header is actually not the midtime, but the time of the first packet.
+# I am going to replace it with the midtime.
+
+met = (met0 + met1) / 2.
+
 # Loop over all images
 
 for i in i_obs:
@@ -259,8 +264,6 @@ for i in i_obs:
 # Calc sub-sc lon/lat
   
   (radius,subsclon[i],subsclat[i]) = cspice.reclat(st_jup_sc[0:3])
-#  sbusclon[i] = lon
-#  subsclat[i] = lat
 
 # Stuff all of these into a Table
 
@@ -355,7 +358,7 @@ r2d = 180 / np.pi
 range_selected = range(np.size(files))            # By default, set the range to act upon every file
 
 prompt = "(#)number, (sr)set range of files for action, (q)uit, (l)ist, (n)ext, (p)revious, list (g)roups, \n" + \
-         "(h)eader,  (d)s9, (" + repr(i) + ") ?: "
+         "(h)eader,  (m)edian, (d)s9, (" + repr(i) + ") ?: "
 
 t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
 
@@ -403,6 +406,34 @@ while (IS_DONE == False):
                 line = key + ' = ' + repr(header[key])
                 if (inp2.upper() in line.upper()):
                     print line
+    
+    if (inp == 'f'):
+        pass
+    
+    if (inp == 'm'): # Enable median subtraction
+        inp2 = raw_input("Enable median subraction?")
+        if (inp2 == 'y'):
+            DO_MEDIAN_SUBTRACT = 1
+        else:
+            DO_MEDIAN_SUBTRACT = 0
+        
+        if (DO_MEDIAN_SUBTRACT):
+            med_start = int(raw_input("First frame as median: "))
+            med_end   = int(raw_input("Last frame as median: "))
+            imagearr = np.zeros((med_end - med_start, 1024, 1024))
+            for j in np.arange(med_start, med_end):    
+                hdulist = fits.open(files[j])
+                header = hdulist[0].header 
+                imagej = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
+                imagearr[j-med_start,:,:] = imagej.data
+            med = np.median(imagearr,0)
+            plt.imshow(med)
+            plt.title('Median, images ' + repr(med_start) + ' .. ' + repr(med_end))
+            plt.show()
+            
+            plt.imshow(image.data - med)
+            plt.title('Image ' + repr(i) + ' - median')
+            plt.show()
         
     if (inp == 'g'): # Start using a Group (ie, )
         t_by_desc = t.group_by('Desc')
@@ -411,7 +442,7 @@ while (IS_DONE == False):
         for i,d in enumerate(descs):
             print repr(i) + ' ' + d[0]
         print "# per group:" + repr(np.diff(t_by_desc.groups.indices))
-        inp2 = raw_input("Group # (0 .. " + repr(size(t_by_desc.groups.keys)-1) + ")")
+        inp2 = raw_input("Group # (0 .. " + repr(np.size(t_by_desc.groups.keys)-1) + ")")
 
         if (inp2 == ''):   # If we hit <cr>, then return to the full list of files
             DO_GROUP = False
@@ -557,9 +588,13 @@ while (IS_DONE == False):
 
 # Now look up the shift between the photometry and the star catalog. 
 # Do this by making a pair of fake images, and then looking up image registration on them.
-# I call this 'opnav'
+# I call this 'opnav'. It is returned in order (y,x) because that is what imreg_dft uses -- even though it is a bit weird.
 
         (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat_abcorr, np.shape(image.data), plot=True)
+
+# Now convert this pixel offset to a radec offset, and tweak wcs.
+
+        quit
         
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
@@ -615,7 +650,7 @@ while (IS_DONE == False):
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
 
         fig = plt.figure()
-        ax = fig.add_subplot(111)
+        ax = fig.add_subplot(1,1,1, projection=w) # Project using the current WCS projection
 #        plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
         fig2 = plt.imshow(np.log(image.data - p))
@@ -637,6 +672,69 @@ while (IS_DONE == False):
 #        x, y = w.wcs_world2pix(ra, dec, 0)
 #        plot(x, y, marker='o', ls='None')        
         plt.show()
+
+######## TEST WCS OFFSETTING ##########
+
+        do_test_wcs = False
+        
+        if (do_test_wcs):
+            w = WCS(t['Filename'][i])                  # Look up the WCS coordinates for this frame
+    #        rcParams['figure.figsize'] = 20, 10
+            plt.rc('figure', figsize=(16,8))
+            figs = plt.figure()
+            ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
+            fig1 = plt.imshow(np.log(image.data - p))
+            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
+            plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+                    
+            plt.xlim((0,1000))
+            plt.ylim((0,1000))
+            plt.title('WCS, center = ' + repr(w.wcs.crval))
+            plt.xlabel('Dec, center = ' + repr(w.wcs.crval[1]))
+            plt.ylabel('RA, center = ' + repr(w.wcs.crval[0]))
+       
+# Now convert the dx / dy offset (from opnav) into an RA/Dec offset.
+# Put the new correct center position into WCS, so plots from now on will be correct.
+
+        do_offset_wcs = False
+        
+        if (do_offset_wcs):
+            m = w.wcs.piximg_matrix
+            w.wcs.crval[0] -= (dy_opnav * (m[0,0] + m[1,0])) # RA. I am sort of guessing about these params, but looks good.
+            w.wcs.crval[1] -= (dx_opnav * (m[1,1] + m[0,1])) # Dec
+    
+            ax1 = figs.add_subplot(1,2,2, projection=w) # nrows, ncols, plotnum. Returns an 'axis'
+            fig1 = plt.imshow(np.log(image.data - p))
+            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
+            
+            plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', fillstyle='none', color='red', markersize=12)
+    
+            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
+            x_cat_abcorr, y_cat_abcorr = w.wcs_world2pix(radec_cat_abcorr[:,0]*r2d, radec_cat_abcorr[:,1]*r2d, 0)
+            x_ring_abcorr, y_ring_abcorr = w.wcs_world2pix(radec_ring_abcorr[:,0]*r2d, radec_ring_abcorr[:,1]*r2d, 0)
+    
+    
+            plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen', mfc = 'None', mec = 'red', ms=12, mew=2, label='Cat')
+            plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', mfc = 'None', mec = 'green', ms=12, mew=2, label = 'Cat, abcorr')
+            plt.plot(x_ring_abcorr, y_ring_abcorr, marker='o', ls='-', color='blue', mfc = 'None', mec = 'blue', ms=12, mew=2, 
+                     label = 'Ring, LT+S')
+                    
+            plt.xlim((0,1000))
+            plt.ylim((0,1000))
+            plt.title('WCS, center = ' + repr(w.wcs.crval))
+        
+#        plt.show()
+
+# Plot Io's position, as a test
+
+#        (state_io, ltime) = cspice.spkezr('Io', et[i], 'J2000', 'LT+S', 'New Horizons')
+#        (dist_io, ra_io, dec_io) = cspice.recrad(state_io[0:3])
+#        (x_io, y_io) = w.wcs_world2pix(ra_io*r2d, dec_io*r2d, 0)
+#        plt.plot(x_io, y_io, mec = 'purple', mew = 4, ms=30, marker = 'o', label='Io', mfc='none')
+#        plt.legend()
+#        plt.show()
+        
+# Draw the images
 
 # Now create an image (off-screen) of the catalog stars only, and the DAOphot stars only
 
