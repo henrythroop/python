@@ -426,7 +426,9 @@ while (IS_DONE == False):
                 header = hdulist[0].header 
                 imagej = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
                 imagearr[j-med_start,:,:] = imagej.data
-            med = np.median(imagearr,0)
+            med = np.median(imagearr,0) # Median works ok, but if the ring stays in same area, median *is* the ring
+            max = np.amax(imagearr,0)   # Max can be contaminated by star light
+            
             plt.imshow(med)
             plt.title('Median, images ' + repr(med_start) + ' .. ' + repr(med_end))
             plt.show()
