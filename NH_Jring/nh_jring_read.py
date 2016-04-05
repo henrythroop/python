@@ -48,7 +48,52 @@ import imreg_dft as ird
 
 #function calc_median_framelist(t)
 
+def get_range(maxrange = 10000):
+    "Request a range of input values from the user. No error checking."
+    "  *; 1-10; 44   are all valid inputs. If  *  then output is 1 .. maxrange."
+    
+    inp2 = raw_input("Range of files [e.g. *; 1-10; 44]: ")
 
+    if (inp2.find('-') >= 0):        # Range of files
+        min = int((inp2.split('-'))[0])
+        max = int((inp2.split('-'))[1])
+        range_selected = range(min, max+1)
+
+    elif (inp2.find('*') >= 0):        # All files
+        range_selected = range(maxrange)
+
+    else:        # Only a single file
+        range_selected = [int(inp2)]
+        print 'Range: ' + repr(range_selected)
+            
+    return range_selected
+
+def read_scale_image_nh(file, frac=0.9):
+    " Reads an NH FITS file from disk. Does simple image processing on it, removes background,"
+    " and roughly scales is for display."
+    " Might still need a log scaling applied for J-ring images."
+       
+#        if ('hdulist') in locals():             # If there is already an hdulist, then close it. (Might double-close it, but that is OK.)
+#            hdulist.close()
+#        f = t['Filename'][i]   
+    hdulist = fits.open(file)
+    image = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
+
+# Fit the data using a polynomial
+
+    if hdulist[0].header['TARGET'] == 'IO':
+        power = 0               # Only do the polynomial fit for ring (Target = Jupiter)
+    else:
+        power = 10
+       
+    frac_max = 0.9              # Clip any pixels brighter than this fractional amount
+        
+    arr_filtered = hbt.remove_brightest(image.data, frac_max)
+        
+    polyfit = hbt.sfit(arr_filtered, power)
+        
+    return arr_filtered - polyfit
+        
 def find_stars(im):
     "Locate stars in an array, using DAOphot. Returns N x 2 array with xy positions. No magnitudes."
          
@@ -228,6 +273,7 @@ met1       = np.array(fits_stopmet)
 exptime    = np.array(fits_exptime)
 rotation   = np.array(fits_spctnaz)
 rotation   = np.rint(rotation).astype(int)  # Turn rotation into integer. I only want this to be 0, 90, 180, 270... I don't care about the resolution so much.
+files_short = np.zeros(num_obs, dtype = 'S30')
 
 dist_targ = np.sqrt(dx_targ**2 + dy_targ**2 + dz_targ**2)
 
@@ -260,16 +306,16 @@ for i in i_obs:
   (st_jup_sc, ltime) = cspice.spkezr('Jupiter', et[i], frame, abcorr, 'New Horizons') #obs, targ
   (st_sun_jup, ltime) = cspice.spkezr('Sun', et[i], frame, abcorr, 'Jupiter')
   phase[i] = cspice.vsep(st_sun_jup[0:3], st_jup_sc[0:3])
-  
+  files_short[i] = files[i].split('/')[-1]
 # Calc sub-sc lon/lat
   
   (radius,subsclon[i],subsclat[i]) = cspice.reclat(st_jup_sc[0:3])
 
 # Stuff all of these into a Table
 
-t = Table([i_obs, met, utc, et, jd, files, naxis1, naxis2, target, instrument, dx_targ, dy_targ, dz_targ, desc, 
+t = Table([i_obs, met, utc, et, jd, files, files_short, naxis1, naxis2, target, instrument, dx_targ, dy_targ, dz_targ, desc, 
            met0, met1, exptime, phase, subsclat, subsclon, naxis1, naxis2, rotation], 
-           names = ('#', 'MET', 'UTC', 'ET', 'JD', 'Filename', 'N1', 'N2', 'Target', 'Inst', 'dx', 'dy', 'dz', 'Desc',
+           names = ('#', 'MET', 'UTC', 'ET', 'JD', 'Filename', 'Shortname', 'N1', 'N2', 'Target', 'Inst', 'dx', 'dy', 'dz', 'Desc',
                     'MET Start', 'MET End', 'Exptime', 'Phase', 'Sub-SC Lat', 'Sub-SC Lon', 'dx_pix', 'dy_pix', 'Rotation'))
 
 # Define units for a few of the columns
@@ -358,7 +404,7 @@ r2d = 180 / np.pi
 range_selected = range(np.size(files))            # By default, set the range to act upon every file
 
 prompt = "(#)number, (sr)set range of files for action, (q)uit, (l)ist, (n)ext, (p)revious, list (g)roups, \n" + \
-         "(h)eader,  (m)edian, (d)s9, (" + repr(i) + ") ?: "
+         "(h)eader,  (m)edian, (d)s9, (A)rray, (N)avigate, (" + repr(i) + ") ?: "
 
 t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
 
@@ -373,22 +419,11 @@ while (IS_DONE == False):
     inp = raw_input("File " + repr(i) + ":" + prompt)
 
     if (inp == 'sr'):
-        inp2 = raw_input("Range of files [e.g. *; 1-10; 44]: ")
-
-        if (inp2.find('-') >= 0):        # Range of files
-            min = int((inp2.split('-'))[0])
-            max = int((inp2.split('-'))[1])
-            range_selected = range(min, max+1)
-
-        elif (inp2.find('*') >= 0):        # All files
-            range_selected = range(size(files))
-
-        else:        # Only a single file
-            range_selected = [int(inp2)]
-            print 'Range: ' + repr(range_selected)
+      range_selected = get_range(max = size(files)) # Ask the user to give a range
   
     if (inp == 'q'): # Quit
         IS_DONE = True
+        DO_PLOT_I = False
     
     if (inp == 'd'): # Load in DS9, or at least put the command on the screen
         print 'o ' + t['Filename'][i]
@@ -407,9 +442,31 @@ while (IS_DONE == False):
                 if (inp2.upper() in line.upper()):
                     print line
     
+    if (inp == 'A'): # Show array of images
+        range_selected = get_range(maxrange = np.size(files)) # Ask the user to give a range
+        fig = plt.figure(1)
+        num_cols = float(3)
+        num_rows = int(math.ceil( np.size(range_selected) / num_cols )) # Round UP
+        
+        plt.rc('figure', figsize=(15, 15*num_rows/num_cols))
+
+        plotnum = 1
+
+        for j in range_selected:
+            arr = read_scale_image_nh(file = files[j])
+#            rownum = plotnum / num_cols + 1
+#            colnum = plotnum % num_cols + 1        
+            plt.subplot(num_rows, num_cols, plotnum)
+            plt.imshow(hbt.ln01(arr))
+            plt.title(repr(j) + ', ' + t['Shortname'][j])
+
+            plotnum += 1
+            
+        plt.show()
+            
     if (inp == 'f'):
         pass
-    
+
     if (inp == 'm'): # Enable median subtraction
         inp2 = raw_input("Enable median subraction?")
         if (inp2 == 'y'):
@@ -428,6 +485,7 @@ while (IS_DONE == False):
                 imagearr[j-med_start,:,:] = imagej.data
             med = np.median(imagearr,0) # Median works ok, but if the ring stays in same area, median *is* the ring
             max = np.amax(imagearr,0)   # Max can be contaminated by star light
+            min = np.amin(imagearr,0)   # Max can be contaminated by star light
             
             plt.imshow(med)
             plt.title('Median, images ' + repr(med_start) + ' .. ' + repr(med_end))
@@ -472,44 +530,35 @@ while (IS_DONE == False):
             i = int(indices[np.roll(index,-1)])
         
         else:
-            i += 1
+            i -= 1
             
         DO_PLOT_I = True
     
-    if (inp == 'n'):
+    if (inp == 'n'): # Next image
         if DO_GROUP:
             indices = (np.array(tg['#'])) # Get a list of indices in this group
             index = (indices == i)        # Find index of current one
             i = int(indices[np.roll(index,1)])    # And move backwards in the list
 
         else:
-            i -= 1
+            i += 1
         DO_PLOT_I = True
         
-    if (inp == 'l'):
+    if (inp == 'l'): # List all frames
         t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
         t[columns_print].pprint(max_lines=-1, max_width=-1)
     
 # If the flag is set, then load and plot the image
     
     if (DO_PLOT_I):     
-#        t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'][i].pprint(max_lines=-1, max_width=-1)
         print t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'][i]
 
-        if ('hdulist') in locals():             # If there is already an hdulist, then close it. (Might double-close it, but that is OK.)
-            hdulist.close()
-        f = t['Filename'][i]   
-        hdulist = fits.open(f)
-        image = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
+        arr = read_scale_image_nh(t['Filename'][i])
+        plt.imshow(np.log(arr))
+        plt.title(t['Shortname'][i])
+        plt.show()
 
-# Fit the data using a polynomial
-
-        if t['Target'][i] == 'IO':
-            power = 0               # Only do the polynomial fit for ring (Target = Jupiter)
-        else:
-            power = 10
-       
-        p = hbt.sfit(image.data, power)
+    if (inp == 'N'): # Navigate the image -- plot rings and everything on it
 
 # Now calculate the ring points...
 
@@ -531,7 +580,6 @@ while (IS_DONE == False):
         st,ltime = cspice.spkezr('New Horizons', t['ET'][i], frame, abcorr, 'Sun') # Get velocity of NH 
         vel_sun_nh_j2k = st[3:6]
         
-        quit      
         for radius_ring in radii_ring:
             for j in range(num_pts_ring):
                 xyz = np.zeros(3)
@@ -595,8 +643,6 @@ while (IS_DONE == False):
         (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat_abcorr, np.shape(image.data), plot=True)
 
 # Now convert this pixel offset to a radec offset, and tweak wcs.
-
-        quit
         
 # Now assemble it all into a single composite image
 # Remove most of the border -- seee http://stackoverflow.com/questions/9295026/matplotlib-plots-removing-axis-legends-and-white-spaces
@@ -736,14 +782,6 @@ while (IS_DONE == False):
 #        plt.legend()
 #        plt.show()
         
-# Draw the images
-
-# Now create an image (off-screen) of the catalog stars only, and the DAOphot stars only
-
-#        data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-#        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))    
-        quit
-
 
 #    
 # Define a method to list all of the images, or a sub-range of them.

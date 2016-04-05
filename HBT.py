@@ -26,6 +26,19 @@ import cspice
 # Function for wheremin()
 #########
 
+def remove_brightest(arr, frac_max):
+    "Clips the brightest values in an array to the level specified" 
+    " e.g., frac = 0.95 will clip brightest 5% of pixels)"
+    
+    clipval_max = np.percentile(arr, frac_max * 100.)
+    return np.clip(arr, np.amin(arr), clipval_max)
+    
+
+def ln01(arr, offset=0.01):
+    "Scale an array logarithmically. Use an offset and ensure that values are positive before scaling."
+    
+    return np.log(arr - np.amin(arr) + offset)
+    
 def correct_stellab(radec, vel):
     "Corect for stellar aberration."
     "radec is array (n,2) in radians. velocity in km/sec. Both should be in J2K coords."
