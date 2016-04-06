@@ -29,6 +29,7 @@ import astropy.table   # I need the unique() function here. Why is in in table a
 import matplotlib.pyplot as plt # pyplot
 import numpy as np
 import astropy.modeling
+from   scipy.optimize import curve_fit
 #from   pylab import *  # So I can change plot size.
                        # Pylab defines the 'plot' command
 import cspice
@@ -40,6 +41,8 @@ from   astropy import units as u           # Units library
 from   astropy.coordinates import SkyCoord # To define coordinates to use in star search
 #from   photutils import datasets
 from   astropy.stats import sigma_clipped_stats
+from   scipy.stats import mode
+from   scipy.optimize import linregress
 from   photutils import daofind
 import wcsaxes
 import HBT as hbt
@@ -68,6 +71,19 @@ def get_range(maxrange = 10000):
             
     return range_selected
 
+def match_image_brightness(arr1, arr2, frac=0.5):
+    "Performs linear regression on two images to try to match them."
+    "Returns fit parameter r: for best fit, use arr2 * r[0] + r[1]"
+    arr1_filter = hbt.remove_brightest(arr1, frac) # Remove the stars, rings, stray light... almost anything except bg
+    arr2_filter = hbt.remove_brightest(arr2, frac)
+    r = linregress(arr1_filter.flatten(), arr2_filter.flatten())
+    
+    m = r[0] # Multiplier = slope
+    b = r[1] # Offset = intercept
+
+    arr2_fixed = arr2 * m + b
+    return (m,b)
+    
 def read_scale_image_nh(file, frac=0.9):
     " Reads an NH FITS file from disk. Does simple image processing on it, removes background,"
     " and roughly scales is for display."
@@ -404,7 +420,7 @@ r2d = 180 / np.pi
 range_selected = range(np.size(files))            # By default, set the range to act upon every file
 
 prompt = "(#)number, (sr)set range of files for action, (q)uit, (l)ist, (n)ext, (p)revious, list (g)roups, \n" + \
-         "(h)eader,  (m)edian, (d)s9, (A)rray, (N)avigate, (" + repr(i) + ") ?: "
+         "(h)eader,  (m)edian, (d)s9, (A)rray, (o)utput png, (N)avigate, (" + repr(i) + ") ?: "
 
 t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
 
@@ -427,10 +443,14 @@ while (IS_DONE == False):
     
     if (inp == 'd'): # Load in DS9, or at least put the command on the screen
         print 'o ' + t['Filename'][i]
+
+##########
+# Display (h)eader
+##########
     
     if (inp == 'h'): # Display the header
-#        f = t['Filename'][i]   
-#        hdulist = fits.open(f)
+        f = t['Filename'][i]   
+        hdulist = fits.open(f)
         header = hdulist[0].header
         inp2 = raw_input("Search string? ") # If desired, search for a particular string in the header (case-insensitive)
         keys = header.keys()
@@ -441,13 +461,19 @@ while (IS_DONE == False):
                 line = key + ' = ' + repr(header[key])
                 if (inp2.upper() in line.upper()):
                     print line
+        hdulist.close()
+        
+##########
+# Show (A)rray of images
+##########
     
-    if (inp == 'A'): # Show array of images
+    if (inp == 'A'): # Show array of images. It is not output, but can be cut & pasted from console to textedit.
         range_selected = get_range(maxrange = np.size(files)) # Ask the user to give a range
-        fig = plt.figure(1)
         num_cols = float(3)
         num_rows = int(math.ceil( np.size(range_selected) / num_cols )) # Round UP
         
+        plt.rc('figure', figsize=(15, 15*num_rows/num_cols))
+        fig = plt.figure(1)
         plt.rc('figure', figsize=(15, 15*num_rows/num_cols))
 
         plotnum = 1
@@ -457,15 +483,66 @@ while (IS_DONE == False):
 #            rownum = plotnum / num_cols + 1
 #            colnum = plotnum % num_cols + 1        
             plt.subplot(num_rows, num_cols, plotnum)
-            plt.imshow(hbt.ln01(arr))
+            plt.imshow(arr)
             plt.title(repr(j) + ', ' + t['Shortname'][j])
 
             plotnum += 1
             
         plt.show()
+
+##########
+# (O)utput multiple images as PNG
+##########
             
-    if (inp == 'f'):
-        pass
+    if (inp == 'o'): # If a single image, output it. If a range, output them, but all at the same scaling
+        range_selected = get_range(maxrange = np.size(files)) # Ask the user to give a range
+    
+        hdulist = fits.open(t['Filename'][i])
+        image = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
+        if hdulist[0].header['TARGET'] == 'IO':
+            power = 0               # Only do the polynomial fit for ring (Target = Jupiter)
+        else:
+            power = 10    
+        frac_max = 0.9              # Clip any pixels brighter than this fractional amount  
+        mode_0 = scipy.stats.mode(np.round(image.data),axis=None)[0][0] # Get the most popular DN value
+        arr_filtered = hbt.remove_brightest(image.data, frac_max)   
+        polyfit = hbt.sfit(arr_filtered, power)
+        arr_plot = arr_filtered - polyfit
+        plt.imshow(arr_plot)
+        plt.title(repr(i) + ', ' + t['Shortname'][i])
+        plt.show()
+        vmin = np.amin(arr_plot)    # Grab the min and max values of these so we can scale others the same way
+        vmax = np.amax(arr_plot)
+        hdulist.close 
+        med_j = np.zeros(np.size(range_selected))
+              
+        hbt.imsize((5,5))
+        for jj,j in enumerate(range_selected):
+            hdulist = fits.open(t['Filename'][j])
+            image = hdulist['PRIMARY']
+            arr = image.data
+            mode_j = scipy.stats.mode(np.round(arr), axis=None)[0][0]
+            arr *= mode_0 / mode_j # Normalize the entire array, based on the statistical mode
+
+            DO_HISTOGRAM = False
+            if DO_HISTOGRAM:            
+                bins = np.arange(100,600,1)
+                h = np.histogram(arr,bins=bins)
+                plt.hist(h,bins=bins)
+                plt.plot(bins[0:-1],h[0])
+                plt.xlim((220,650))
+                plt.title(repr(j) + ', ' + t['Shortname'][j])
+                plt.show()
+            
+            med_j[jj] = np.median(arr)
+            plt.imshow(arr - polyfit, vmin=vmin, vmax=vmax)
+            plt.title(repr(j) + ', ' + t['Shortname'][j])
+            plt.show()
+            hdulist.close()
+
+##########
+# Enable (m)edian subtraction
+##########
 
     if (inp == 'm'): # Enable median subtraction
         inp2 = raw_input("Enable median subraction?")
@@ -475,25 +552,48 @@ while (IS_DONE == False):
             DO_MEDIAN_SUBTRACT = 0
         
         if (DO_MEDIAN_SUBTRACT):
-            med_start = int(raw_input("First frame as median: "))
-            med_end   = int(raw_input("Last frame as median: "))
-            imagearr = np.zeros((med_end - med_start, 1024, 1024))
-            for j in np.arange(med_start, med_end):    
+            range_selected = get_range(maxrange = np.size(files)) # Ask the user to give a range
+            num_images = np.size(range_selected)
+            image_arr = np.zeros((num_images, 1024, 1024))
+            mode_arr = np.zeros(num_images)
+            mode = np.zeros(num_images)
+            
+            for ii,j in enumerate(range_selected):    
                 hdulist = fits.open(files[j])
                 header = hdulist[0].header 
-                imagej = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
-                imagearr[j-med_start,:,:] = imagej.data
-            med = np.median(imagearr,0) # Median works ok, but if the ring stays in same area, median *is* the ring
-            max = np.amax(imagearr,0)   # Max can be contaminated by star light
-            min = np.amin(imagearr,0)   # Max can be contaminated by star light
+                image_j = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
+                mode_arr[ii] = scipy.stats.mode(np.round(image_j.data), axis=None)[0][0]
+                r = match_image_brightness(image_arr[0], image_j.data, frac=0.5)
+                image_arr[ii,:,:] = image_j.data * r[0] + r[1]
+                hdulist.close()
+                
+            med = np.median(image_arr,0) # Median works ok, but if the ring stays in same area, median *is* the ring
+            max = np.amax(image_arr,0)   # Max can be contaminated by star light
+            min = np.amin(image_arr,0)   # Max can be contaminated by star light
+            for ii in range(num_images):
+                mode[ii] = scipy.stats.mode(np.round(image_arr[i,:,:]),axis=None)[0][0]
+            
+#            mode = scipy.stats.mode(np.round(imagearr, axis=1)
             
             plt.imshow(med)
             plt.title('Median, images ' + repr(med_start) + ' .. ' + repr(med_end))
             plt.show()
+
+            plt.imshow(min)
+            plt.title('Min, images ' + repr(med_start) + ' .. ' + repr(med_end))
+            plt.show()
+
+            plt.imshow(max)
+            plt.title('Max, images ' + repr(med_start) + ' .. ' + repr(med_end))
+            plt.show()            
             
-            plt.imshow(image.data - med)
+            plt.imshow(imagearr[0] - med)
             plt.title('Image ' + repr(i) + ' - median')
             plt.show()
+
+##########
+# Starting using a (g)roup
+##########
         
     if (inp == 'g'): # Start using a Group (ie, )
         t_by_desc = t.group_by('Desc')
@@ -522,6 +622,10 @@ while (IS_DONE == False):
     if (hbt.is_number(inp)):
         i = int(inp)
         DO_PLOT_I = True
+
+##########
+# (p)revious image
+##########
         
     if (inp == 'p'): # Previous
         if DO_GROUP:
@@ -533,6 +637,10 @@ while (IS_DONE == False):
             i -= 1
             
         DO_PLOT_I = True
+
+##########
+# (n)ext image
+##########
     
     if (inp == 'n'): # Next image
         if DO_GROUP:
@@ -543,7 +651,11 @@ while (IS_DONE == False):
         else:
             i += 1
         DO_PLOT_I = True
-        
+
+##########
+# (l)ist all frames
+##########
+       
     if (inp == 'l'): # List all frames
         t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
         t[columns_print].pprint(max_lines=-1, max_width=-1)
@@ -554,9 +666,14 @@ while (IS_DONE == False):
         print t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'][i]
 
         arr = read_scale_image_nh(t['Filename'][i])
-        plt.imshow(np.log(arr))
+#        plt.imshow(np.log(arr))
+        plt.imshow(arr)
         plt.title(t['Shortname'][i])
         plt.show()
+
+#########
+# (N)avigate the image -- plot rings and everything on it
+#########
 
     if (inp == 'N'): # Navigate the image -- plot rings and everything on it
 

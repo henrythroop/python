@@ -33,11 +33,29 @@ def remove_brightest(arr, frac_max):
     clipval_max = np.percentile(arr, frac_max * 100.)
     return np.clip(arr, np.amin(arr), clipval_max)
     
-
 def ln01(arr, offset=0.01):
     "Scale an array logarithmically. Use an offset and ensure that values are positive before scaling."
     
     return np.log(arr - np.amin(arr) + offset)
+
+def scale_image(min, max, polynomial, percentile=False):
+    "Applies a pre-calculated scaling to an array"
+    pass
+
+def fullprint(*args, **kwargs):  # From http://stackoverflow.com/questions/1987694/print-the-full-numpy-array
+  "Print a numpy array, without truncating it."
+  "This is really slow for large arrays (> 10K)"
+  
+  from pprint import pprint
+  import numpy
+  opt = numpy.get_printoptions()
+  numpy.set_printoptions(threshold='nan')
+  pprint(*args, **kwargs)
+  numpy.set_printoptions(**opt)
+  
+def imsize((size)):
+    "Set plot size. Same as using rc, but easier syntax."
+    plt.rc('figure', figsize=(size[0], size[1]))
     
 def correct_stellab(radec, vel):
     "Corect for stellar aberration."
