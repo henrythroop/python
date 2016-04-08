@@ -42,7 +42,7 @@ from   astropy.coordinates import SkyCoord # To define coordinates to use in sta
 #from   photutils import datasets
 from   astropy.stats import sigma_clipped_stats
 from   scipy.stats import mode
-from   scipy.optimize import linregress
+from   scipy.stats import linregress
 from   photutils import daofind
 import wcsaxes
 import HBT as hbt
@@ -443,6 +443,7 @@ while (IS_DONE == False):
     
     if (inp == 'd'): # Load in DS9, or at least put the command on the screen
         print 'o ' + t['Filename'][i]
+        DO_PLOT_I = False
 
 ##########
 # Display (h)eader
