@@ -51,6 +51,46 @@ import imreg_dft as ird
 
 #function calc_median_framelist(t)
 
+def get_jring_points_radec(et, num_pts=100, radius = 122000):
+    "Get an array of points of RA, Dec for the Jupiter ring, at a specified radius, seen from NH at the given ET."
+    
+# Now calculate the ring points...
+
+    radii_ring = np.array([1220000., 129000.])  # Inner and outer radius to plot
+    num_pts_ring = 100
+    
+    ring_lon = np.linspace(0, 2. * np.pi, num_pts_ring)
+    ra_ring  = np.zeros(num_pts_ring)
+    dec_ring = np.zeros(num_pts_ring)
+    
+    frame = 'J2000'
+    abcorr = 'LT'
+    rot = cspice.pxform('IAU_Jupiter', frame, et) # Get matrix from arg1 to arg2
+    
+    st,ltime = cspice.spkezr('Jupiter', et, frame, abcorr, 'New Horizons')
+    pos = st[0:3]
+    vel = st[3:6] # velocity, km/sec, of jupiter
+    
+    for radius_ring in radii_ring:
+        for j in range(num_pts_ring):
+            xyz = np.zeros(3)
+            xyz = np.array((radius_ring * np.cos(ring_lon[j]), radius_ring * np.sin(ring_lon[j]), 0.))
+            
+            d_j2000_xyz = np.dot(rot,xyz)  # Manual says that this is indeed matrix multiplication
+            j2000_xyz = 0 * d_j2000_xyz
+            j2000_xyz[0:3] = d_j2000_xyz[0:3] # Looks like this is just copying it
+
+            rho_planet    = pos                     # Position of planet
+            rho_ring      = rho_planet + j2000_xyz  # Vector obs-ring
+            dist_ring     = cspice.vnorm(rho_ring)*1000 # Convert to km... CHECK UNITS!
+            
+            range_out, ra, dec = cspice.recrad(rho_ring) # 'range' is a protected keyword in python!
+            
+            ra_ring[j] = ra     # save RA, Dec as radians
+            dec_ring[j] = dec
+                
+    return ra_ring, dec_ring
+    
 def get_range(maxrange = 10000):
     "Request a range of input values from the user. No error checking."
     "  *; 1-10; 44   are all valid inputs. If  *  then output is 1 .. maxrange."
@@ -84,28 +124,36 @@ def match_image_brightness(arr1, arr2, frac=0.5):
     arr2_fixed = arr2 * m + b
     return (m,b)
     
-def read_scale_image_nh(file, frac=0.9):
+def get_image_nh(file, frac=0.9, polyfit=True, raw=False, ):
     " Reads an NH FITS file from disk. Does simple image processing on it, removes background,"
     " and roughly scales is for display."
     " Might still need a log scaling applied for J-ring images."
        
-#        if ('hdulist') in locals():             # If there is already an hdulist, then close it. (Might double-close it, but that is OK.)
+#        if ('hdulist') in locals():        # If there is already an hdulist, then close it. (Might double-close it, but that is OK.)
 #            hdulist.close()
 #        f = t['Filename'][i]   
     hdulist = fits.open(file)
     image = hdulist['PRIMARY'] # options are 'PRIMARY', 'LORRI Error', 'LORRI Quality'
 
+# If requested, return the raw unscaled image
+
+    if (raw == True):
+        return arr
+               
+# Clip any pixels brighter than this fractional amount (e.g., 0.9 = clip to 90th percentile)
+               
+    arr_filtered = hbt.remove_brightest(image.data, frac)
+
+    if (polyfit == False):
+        return arr_filtered
+        
 # Fit the data using a polynomial
 
     if hdulist[0].header['TARGET'] == 'IO':
         power = 0               # Only do the polynomial fit for ring (Target = Jupiter)
     else:
-        power = 10
-       
-    frac_max = 0.9              # Clip any pixels brighter than this fractional amount
-        
-    arr_filtered = hbt.remove_brightest(image.data, frac_max)
-        
+        power = 10       
+
     polyfit = hbt.sfit(arr_filtered, power)
         
     return arr_filtered - polyfit
@@ -160,16 +208,8 @@ def calc_offset_points(points_1, points_2, shape, plot=False):
         plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
         plt.ylim(yrange)
         plt.title('Shifted, dx=' + repr(dx) + ', dy = ' + repr(dy))
-
-#        ax3 = figs.add_subplot(2,2,3)
         
         plt.show()
-        
-# Plot the pair of images
-
-#        plt.imshow(image_phot + 
-#          np.roll(np.roll(image_from_list_points(points_cat, np.shape(image.data),diam_kernel),t0[0],0),t0[1],1))
-#        plt.show()
         
     return t0
         
@@ -288,7 +328,7 @@ met0       = np.array(fits_startmet)
 met1       = np.array(fits_stopmet)
 exptime    = np.array(fits_exptime)
 rotation   = np.array(fits_spctnaz)
-rotation   = np.rint(rotation).astype(int)  # Turn rotation into integer. I only want this to be 0, 90, 180, 270... I don't care about the resolution so much.
+rotation   = np.rint(rotation).astype(int)  # Turn rotation into integer. I only want this to be 0, 90, 180, 270... 
 files_short = np.zeros(num_obs, dtype = 'S30')
 
 dist_targ = np.sqrt(dx_targ**2 + dy_targ**2 + dz_targ**2)
@@ -480,7 +520,7 @@ while (IS_DONE == False):
         plotnum = 1
 
         for j in range_selected:
-            arr = read_scale_image_nh(file = files[j])
+            arr = get_image_nh(file = files[j], polyfit=True)
 #            rownum = plotnum / num_cols + 1
 #            colnum = plotnum % num_cols + 1        
             plt.subplot(num_rows, num_cols, plotnum)
@@ -660,105 +700,70 @@ while (IS_DONE == False):
     if (inp == 'l'): # List all frames
         t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'].pprint(max_lines=-1, max_width=-1)
         t[columns_print].pprint(max_lines=-1, max_width=-1)
-    
-# If the flag is set, then load and plot the image
-    
-    if (DO_PLOT_I):     
-        print t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'][i]
-
-        arr = read_scale_image_nh(t['Filename'][i])
-#        plt.imshow(np.log(arr))
-        plt.imshow(arr)
-        plt.title(t['Shortname'][i])
-        plt.show()
 
 #########
 # (N)avigate the image -- plot rings and everything on it
 #########
 
     if (inp == 'N'): # Navigate the image -- plot rings and everything on it
+        
+# Now look up positions of stars in this field, from a star catalog
 
-# Now calculate the ring points...
-
-        radii_ring = np.array([1220000., 129000.])  # Inner and outer radius to plot
-        num_pts_ring = 100
-        
-        ring_lon = np.linspace(0, 2. * np.pi, num_pts_ring)
-        ra_ring  = np.zeros(num_pts_ring)
-        dec_ring = np.zeros(num_pts_ring)
-        
-        frame = 'J2000'
-        abcorr = 'LT'
-        rot = cspice.pxform('IAU_Jupiter', frame, t['ET'][i]) # Get matrix from arg1 to arg2
-        
-        st,ltime = cspice.spkezr('Jupiter', t['ET'][i], frame, abcorr, 'New Horizons')
-        pos = st[0:3]
-        vel = st[3:6] # velocity, km/sec, of jupiter
-        
-        st,ltime = cspice.spkezr('New Horizons', t['ET'][i], frame, abcorr, 'Sun') # Get velocity of NH 
-        vel_sun_nh_j2k = st[3:6]
-        
-        for radius_ring in radii_ring:
-            for j in range(num_pts_ring):
-                xyz = np.zeros(3)
-                xyz = np.array((radius_ring * np.cos(ring_lon[j]), radius_ring * np.sin(ring_lon[j]), 0.))
-                
-                d_j2000_xyz = np.dot(rot,xyz)  # Manual says that this is indeed matrix multiplication
-                j2000_xyz = 0 * d_j2000_xyz
-                j2000_xyz[0:3] = d_j2000_xyz[0:3] # Looks like this is just copying it
-
-                rho_planet    = pos                     # Position of planet
-                rho_ring      = rho_planet + j2000_xyz  # Vector obs-ring
-                dist_ring     = cspice.vnorm(rho_ring)*1000 # Convert to km... CHECK UNITS!
-                
-                range_out, ra, dec = cspice.recrad(rho_ring) # 'range' is a protected keyword in python!
-                
-                ra_ring[j] = ra     # save RA, Dec as radians
-                dec_ring[j] = dec
-                
         w = WCS(t['Filename'][i])                  # Look up the WCS coordinates for this frame
-
-        x_ring, y_ring = w.wcs_world2pix(ra_ring*r2d, dec_ring*r2d, 0)
-        
-# Now look up positions from a star catalog
 
         center  = w.wcs.crval  # degrees
         name_cat = 'The HST Guide Star Catalog, Version 1.1 (Lasker+ 1992) 1'
         stars = conesearch.conesearch(w.wcs.crval, 0.3, cache=True, catalog_db = name_cat)
-        ra_cat = np.array(stars.array['_RAJ2000'])*d2r # Convert to radians
-        dec_cat = np.array(stars.array['_DEJ2000'])*d2r # Convert to radians
+        ra_stars  = np.array(stars.array['_RAJ2000'])*d2r # Convert to radians
+        dec_stars = np.array(stars.array['_DEJ2000'])*d2r # Convert to radians
         table_stars = Table(stars.array.data)
-        
-        DO_PLOT_I = False
 
+# Get an array of points along the ring
+
+        ra_ring, dec_ring = get_jring_points_radec(et)                    # Return as radians              
+        x_ring, y_ring    = w.wcs_world2pix(ra_ring*r2d, dec_ring*r2d, 0) # Convert to pixels
+        
+# Look up velocity of NH, for stellar aberration
+        
+        et = t['ET'][i]
+        abcorr = 'LT+S'
+        frame = 'J2000'
+        st,ltime = cspice.spkezr('New Horizons', et, frame, abcorr, 'Sun') # Get velocity of NH 
+        vel_sun_nh_j2k = st[3:6]
+        
 # Correct stellar RA/Dec for stellar aberration
 
-        radec_cat = np.transpose(np.array((ra_cat,dec_cat)))
-        radec_cat_abcorr = hbt.correct_stellab(radec_cat, vel_sun_nh_j2k) # Store as radians
+        radec_stars        = np.transpose(np.array((ra_stars,dec_stars)))
+        radec_stars_abcorr = hbt.correct_stellab(radec_stars, vel_sun_nh_j2k) # Store as radians
 
 # Convert ring RA/Dec for stellar aberration
 
-        radec_ring = np.transpose(np.array((ra_ring,dec_ring)))
+        radec_ring        = np.transpose(np.array((ra_ring,dec_ring)))
         radec_ring_abcorr = hbt.correct_stellab(radec_ring, vel_sun_nh_j2k) # radians
         
 # Convert RA/Dec values back into pixels
         
-        x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
-        x_cat_abcorr, y_cat_abcorr = w.wcs_world2pix(radec_cat_abcorr[:,0]*r2d, radec_cat_abcorr[:,1]*r2d, 0)
+        x_stars,        y_stars          = w.wcs_world2pix(radec_stars[:,0]*r2d,   radec_stars[:,1]*r2d, 0)  # final arg: row vs column order      
+        x_stars_abcorr, y_stars_abcorr   = w.wcs_world2pix(radec_stars_abcorr[:,0]*r2d, radec_stars_abcorr[:,1]*r2d, 0)
         x_ring_abcorr, y_ring_abcorr = w.wcs_world2pix(radec_ring_abcorr[:,0]*r2d, radec_ring_abcorr[:,1]*r2d, 0)
 
-        points_cat = np.transpose((x_cat, y_cat))
-        points_cat_abcorr = np.transpose((x_cat_abcorr, y_cat_abcorr))
+        points_stars        = np.transpose((x_stars, y_stars))
+        points_stars_abcorr = np.transpose((x_stars_abcorr, y_stars_abcorr))
+
+# Read the image file from disk
+
+        image_polyfit = get_image_nh(t['Filename'][i], frac=1., polyfit = True)
+        image_raw     = get_image_nh(t['Filename'][i], raw = True)
 
 # Use DAOphot to search the image for stars. It works really well.
-        
-        points_phot = find_stars(image.data - p)
 
+        points_phot = find_stars(image_polyfit)
+        
 # Now look up the shift between the photometry and the star catalog. 
 # Do this by making a pair of fake images, and then looking up image registration on them.
 # I call this 'opnav'. It is returned in order (y,x) because that is what imreg_dft uses -- even though it is a bit weird.
 
-        (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_cat_abcorr, np.shape(image.data), plot=True)
+        (dy_opnav, dx_opnav) = calc_offset_points(points_phot, points_stars_abcorr, np.shape(image_raw), plot=True)
 
 # Now convert this pixel offset to a radec offset, and tweak wcs.
         
@@ -771,13 +776,13 @@ while (IS_DONE == False):
 #  ** Second plot
 #  Plot the catalog stars *plus derived offset* in circles
 
-        xrange = (0, np.shape(image.data)[0])
-        yrange = (0, np.shape(image.data)[1])
+        xrange = (0, np.shape(image_raw)[0])
+        yrange = (0, np.shape(image_raw)[1])
 
         figs = plt.figure()
         ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
 
-        fig1 = plt.imshow(np.log(image.data - p))
+        fig1 = plt.imshow(np.log(image_polyfit))
 
         plt.xlim(xrange)    # Need to set this explicitly so that points out of image range are clipped
         plt.ylim(yrange)
@@ -787,16 +792,16 @@ while (IS_DONE == False):
 
 # Now make second plot    
         ax2 = figs.add_subplot(1,2,2)
-        fig2 = plt.imshow(np.log(image.data - p))
+        fig2 = plt.imshow(np.log(image_polyfit))
 
 # Overlay photometric stars
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='red', markersize=12)
 
 # Overlay catalog stars
-#        plt.plot(points_cat[:,0],  points_cat[:,1],  marker='o', ls='None', color='lightgreen')
+#        plt.plot(points_stars[:,0],  points_stars[:,1],  marker='o', ls='None', color='lightgreen')
 
 # Overlay catalog stars, corrected for opnav offset
-        plt.plot(points_cat_abcorr[:,0] + dx_opnav, points_cat_abcorr[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen')
+        plt.plot(points_stars_abcorr[:,0] + dx_opnav, points_stars_abcorr[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen')
         
 # Overlay rings points
         plt.plot(x_ring, y_ring, marker = 'o', color='red', ls='-')
@@ -819,9 +824,9 @@ while (IS_DONE == False):
         ax = fig.add_subplot(1,1,1, projection=w) # Project using the current WCS projection
 #        plt.axis('off') # Suppress all axis, labels, etc. 
         ax = plt.Axes(fig, [0,0,1,1]) 
-        fig2 = plt.imshow(np.log(image.data - p))
+        fig2 = plt.imshow(np.log(image_polyfit))
         
-        plt.plot(points_cat[:,0] + dx_opnav, points_cat[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+        plt.plot(points_stars[:,0] + dx_opnav, points_stars[:,1] + dy_opnav, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
 
         plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', color='pink')
 
@@ -849,9 +854,9 @@ while (IS_DONE == False):
             plt.rc('figure', figsize=(16,8))
             figs = plt.figure()
             ax1 = figs.add_subplot(1,2,1) # nrows, ncols, plotnum. Returns an 'axis'
-            fig1 = plt.imshow(np.log(image.data - p))
-            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
-            plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
+            fig1 = plt.imshow(np.log(image_polyfit))
+            x_stars,        y_stars        = w.wcs_world2pix(radec_stars[:,0]*r2d,   radec_stars[:,1]*r2d, 0)  # final arg: row vs column order      
+            plt.plot(x_stars, y_stars, marker='o', ls='None', color='lightgreen', ms=12, mew=1)
                     
             plt.xlim((0,1000))
             plt.ylim((0,1000))
@@ -870,24 +875,40 @@ while (IS_DONE == False):
             w.wcs.crval[1] -= (dx_opnav * (m[1,1] + m[0,1])) # Dec
     
             ax1 = figs.add_subplot(1,2,2, projection=w) # nrows, ncols, plotnum. Returns an 'axis'
-            fig1 = plt.imshow(np.log(image.data - p))
-            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
+            fig1 = plt.imshow(np.log(image_polyfit))
+            x_stars,        y_stars        = w.wcs_world2pix(radec_stars[:,0]*r2d,   radec_stars[:,1]*r2d, 0)  # final arg: row vs column order      
             
             plt.plot(points_phot[:,0], points_phot[:,1], marker='o', ls='None', fillstyle='none', color='red', markersize=12)
     
-            x_cat,        y_cat        = w.wcs_world2pix(radec_cat[:,0]*r2d,   radec_cat[:,1]*r2d, 0)  # final arg deal with row vs column order      
-            x_cat_abcorr, y_cat_abcorr = w.wcs_world2pix(radec_cat_abcorr[:,0]*r2d, radec_cat_abcorr[:,1]*r2d, 0)
+            x_stars,        y_stars        = w.wcs_world2pix(radec_stars[:,0]*r2d,   radec_stars[:,1]*r2d, 0)  # final arg: row vs column order      
+            x_stars_abcorr, y_stars_abcorr = w.wcs_world2pix(radec_stars_abcorr[:,0]*r2d, radec_stars_abcorr[:,1]*r2d, 0)
             x_ring_abcorr, y_ring_abcorr = w.wcs_world2pix(radec_ring_abcorr[:,0]*r2d, radec_ring_abcorr[:,1]*r2d, 0)
     
     
-            plt.plot(x_cat, y_cat, marker='o', ls='None', color='lightgreen', mfc = 'None', mec = 'red', ms=12, mew=2, label='Cat')
-            plt.plot(x_cat_abcorr, y_cat_abcorr, marker='o', ls='None', mfc = 'None', mec = 'green', ms=12, mew=2, label = 'Cat, abcorr')
+            plt.plot(x_stars, y_stars, marker='o', ls='None', color='lightgreen', mfc = 'None', mec = 'red', ms=12, mew=2, label='Cat')
+            plt.plot(x_stars_abcorr, y_stars_abcorr, marker='o', ls='None', mfc = 'None', mec = 'green', ms=12, mew=2, label = 'Cat, abcorr')
             plt.plot(x_ring_abcorr, y_ring_abcorr, marker='o', ls='-', color='blue', mfc = 'None', mec = 'blue', ms=12, mew=2, 
                      label = 'Ring, LT+S')
                     
             plt.xlim((0,1000))
             plt.ylim((0,1000))
             plt.title('WCS, center = ' + repr(w.wcs.crval))
+            
+        DO_PLOT_I = False
+    
+##########    
+# Load and plot the image, if appropriate flag is set.
+# This runs at end of loop.
+##########
+    
+    if (DO_PLOT_I):     
+        print t['#', 'MET', 'UTC', 'Exptime', 'Target', 'Desc'][i]
+
+        arr = get_image_nh(t['Filename'][i], polyfit=True)
+#        plt.imshow(np.log(arr))
+        plt.imshow(arr)
+        plt.title(t['Shortname'][i])
+        plt.show()
         
 #        plt.show()
 
