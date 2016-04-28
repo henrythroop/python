@@ -427,7 +427,7 @@ mask = (t['dx_pix'] == 1024) & (t['Phase'] < 0.4)
 astropy.io.ascii.write(t['UTC', 'MET', 'Exptime'][mask],format='latex') # Cool -- it really works!
 
 # Make a plot of phase angle
-quit
+#quit # NB: IF I uncomment this, then I get a kernel crash later on, when I try to navigate an image. Weird.
 plt.plot(met, phase*180/3.14)
 
 plt.plot(t['MET'], t['Phase'])
@@ -946,7 +946,7 @@ while (IS_DONE == False):
 #  Process the selected image(s)
 #  View the selected image(s)
 
-quit
+quit  # When the IS_DONE loop is finished, execution drops to here
 
 subsollon  = np.empty_like(jd)
 
