@@ -32,7 +32,7 @@ import astropy.modeling
 from   scipy.optimize import curve_fit
 #from   pylab import *  # So I can change plot size.
                        # Pylab defines the 'plot' command
-import cspice
+#import cspice
 import skimage
 from   itertools import izip    # To loop over groups in a table -- see astropy tables docs
 from   astropy.wcs import WCS
@@ -69,7 +69,9 @@ def get_jring_points_radec(et, num_pts=100, radius = 122000):
 #    rot = cspice.pxform('IAU_Jupiter', frame, et) # Get matrix from arg1 to arg2
     rot = [[1,0,0],[0,1,0],[0,0,1]]
     
-    st,ltime = cspice.spkezr('Jupiter', et, frame, abcorr, 'New Horizons')
+#    st,ltime = cspice.spkezr('Jupiter', et, frame, abcorr, 'New Horizons')
+    st = [0,0,0,0,0,0]
+    ltime = 0
     pos = st[0:3]
     vel = st[3:6] # velocity, km/sec, of jupiter
     
@@ -84,10 +86,13 @@ def get_jring_points_radec(et, num_pts=100, radius = 122000):
 
             rho_planet    = pos                     # Position of planet
             rho_ring      = rho_planet + j2000_xyz  # Vector obs-ring
-            dist_ring     = cspice.vnorm(rho_ring)*1000 # Convert to km... CHECK UNITS!
+#            dist_ring     = cspice.vnorm(rho_ring)*1000 # Convert to km... CHECK UNITS!
+            dist_ring = 0
             
-            range_out, ra, dec = cspice.recrad(rho_ring) # 'range' is a protected keyword in python!
-            
+#            range_out, ra, dec = cspice.recrad(rho_ring) # 'range' is a protected keyword in python!
+            range_out = 1
+            ra = 1
+            dec = 1
             ra_ring[j] = ra     # save RA, Dec as radians
             dec_ring[j] = dec
                 
@@ -224,7 +229,7 @@ dir_data = '/Users/throop/data/NH_Jring/data/jupiter/level2/lor/all'
 # Start up SPICE
 
 file_tm  = "/Users/throop/gv/dev/gv_kernels_new_horizons.txt"
-cspice.furnsh(file_tm)
+#cspice.furnsh(file_tm)
 
 # Get the full list of files
 
@@ -356,18 +361,26 @@ for i in i_obs:
 
 # Get the ET and UTC, from the JD. These are all times *on s/c*, which is what we want
 
-  et[i] = cspice.utc2et('JD ' + repr(jd[i]))
-  utc[i] = cspice.et2utc(et[i], 'C', 2)
+#  et[i] = cspice.utc2et('JD ' + repr(jd[i]))
+  et[i]= 0
+#  utc[i] = cspice.et2utc(et[i], 'C', 2)
+  utc[i] = 'UT 0'
 
 # Calculate Sun-Jupiter-NH phase angle for each image 
 
-  (st_jup_sc, ltime) = cspice.spkezr('Jupiter', et[i], frame, abcorr, 'New Horizons') #obs, targ
-  (st_sun_jup, ltime) = cspice.spkezr('Sun', et[i], frame, abcorr, 'Jupiter')
-  phase[i] = cspice.vsep(st_sun_jup[0:3], st_jup_sc[0:3])
+#  (st_jup_sc, ltime) = cspice.spkezr('Jupiter', et[i], frame, abcorr, 'New Horizons') #obs, targ
+  st_jup_sc = np.array([0,0,0,0,0,0])
+  ltime = 0
+#  (st_sun_jup, ltime) = cspice.spkezr('Sun', et[i], frame, abcorr, 'Jupiter')
+  st_sun_jup = np.array([0,0,0,0,0,0])
+  ltime = 0
+#  phase[i] = cspice.vsep(st_sun_jup[0:3], st_jup_sc[0:3])
+  phase[i] = 0
   files_short[i] = files[i].split('/')[-1]
 # Calc sub-sc lon/lat
   
-  (radius,subsclon[i],subsclat[i]) = cspice.reclat(st_jup_sc[0:3])
+#  (radius,subsclon[i],subsclat[i]) = cspice.reclat(st_jup_sc[0:3])
+  (radius, subsclon[i], subsclat[i]) = (0,0,0) 
 
 # Stuff all of these into a Table
 
@@ -733,7 +746,9 @@ while (IS_DONE == False):
         et = t['ET'][i]
         abcorr = 'LT+S'
         frame = 'J2000'
-        st,ltime = cspice.spkezr('New Horizons', et, frame, abcorr, 'Sun') # Get velocity of NH 
+#        st,ltime = cspice.spkezr('New Horizons', et, frame, abcorr, 'Sun') # Get velocity of NH 
+        st = np.array([0,0,0,0,0,0])
+        ltime = 0
         vel_sun_nh_j2k = st[3:6]
         
 # Correct stellar RA/Dec for stellar aberration
